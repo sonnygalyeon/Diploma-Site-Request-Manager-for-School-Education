@@ -1,0 +1,10 @@
+<h1>Заявки</h1>
+<table>
+  {% for app in applications %}
+    <tr>
+      <td>{{ app.name }}</td>
+      <td>{{ app.course.title }}</td>
+      <td>{{ app.get_status_display }}</td>
+    </tr>
+  {% endfor %}
+</table>

@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: request_manager_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: samsepi0l
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:latest  # Используйте latest вместо 6
+    ports:
+      - "6379:6379"
+
+  web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/code
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgres://myuser:mypassword@db:5432/mydb
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+
+volumes:
+  postgres_data:
