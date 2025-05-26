@@ -9,79 +9,69 @@ from .tasks import send_telegram_notification
 from rest_framework import serializers
 from .models import Application
 
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .serializers import ApplicationSerializer
+
+from rest_framework import generics
+from .serializers import ApplicationSerializer
+
+from django.views.decorators.csrf import csrf_exempt
+import json
 
 
-class ApplicationSerializer(serializers.ModelSerializer):
-    class Meta: 
-        model = Application
-        fields = '__all__'
-        read_only_fields = ('status', 'created_at', 'updated_at')
+@csrf_exempt
+def telegram_webhook(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        callback_data = data.get('callback_query', {}).get('data')
+        
+        if callback_data.startswith('approve_'):
+            app_id = callback_data.split('_')[1]
+            # Обновляем статус в БД
+            Application.objects.filter(id=app_id).update(status='approved')
+            
+        elif callback_data.startswith('reject_'):
+            app_id = callback_data.split('_')[1]
+            Application.objects.filter(id=app_id).update(status='rejected')
+            
+    return JsonResponse({'status': 'ok'})
 
-logger = logging.getLogger(__name__)
+class ApplicationListAPI(generics.ListCreateAPIView):
+    queryset = Application.objects.all()
+    serializer_class = ApplicationSerializer
+
+class ApplicationDetailAPI(generics.RetrieveUpdateAPIView):
+    queryset = Application.objects.all()
+    serializer_class = ApplicationSerializer
+
+@api_view(['GET'])
+def application_list(request):
+    applications = Application.objects.all()
+    serializer = ApplicationSerializer(applications, many=True)
+    return Response(serializer.data)
 
 @csrf_exempt
 def create_application(request):
-    if request.method != 'POST':
-        return JsonResponse(
-            {'status': 'error', 'message': 'Only POST method allowed'},
-            status=405
-        )
-
-    try:
-        # Парсинг JSON
+    if request.method == 'POST':
         try:
-            data = json.loads(request.body.decode('utf-8'))
-            logger.debug(f"Received data: {data}")
-        except json.JSONDecodeError:
-            return JsonResponse(
-                {'status': 'error', 'message': 'Invalid JSON format'},
-                status=400
+            data = json.loads(request.body)
+            app = Application.objects.create(
+                name=data['name'],
+                phone=data['phone'],
+                message=data.get('message', '')
             )
-
-        # Валидация полей
-        required_fields = ['name', 'phone']
-        missing_fields = [field for field in required_fields if field not in data]
-        if missing_fields:
-            return JsonResponse(
-                {'status': 'error', 'message': f'Missing fields: {", ".join(missing_fields)}'},
-                status=400
-            )
-
-        # Создание заявки
-        try:
-            application = Application.objects.create(
-                name=data['name'].strip(),
-                phone=data['phone'].strip(),
-                message=data.get('message', '').strip()
-            )
-        except ValidationError as e:
-            return JsonResponse(
-                {'status': 'error', 'message': str(e)},
-                status=400
-            )
-
-        # Подготовка данных для уведомления
-        notification_data = {
-            'id': application.id,
-            'name': application.name,
-            'phone': application.phone,
-            'message': application.message,
-            'status': application.status,
-            'created_at': application.created_at.strftime('%Y-%m-%d %H:%M:%S')
-        }
-
-        # Асинхронная отправка уведомления
-        send_telegram_notification.delay(notification_data)
-
-        return JsonResponse({
-            'status': 'success',
-            'application_id': application.id,
-            'created_at': notification_data['created_at']
-        })
-
-    except Exception as e:
-        logger.exception("Unexpected error in create_application")
-        return JsonResponse(
-            {'status': 'error', 'message': 'Internal server error'},
-            status=500
-        )
+            
+            # Формируем данные для уведомления
+            notification_data = {
+                'id': app.id,
+                'name': app.name,
+                'phone': app.phone,
+                'message': app.message,
+                'created_at': app.created_at.strftime('%Y-%m-%d %H:%M:%S')  # Добавляем дату
+            }
+            
+            send_telegram_notification.delay(notification_data)
+            return JsonResponse({'status': 'success'})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
