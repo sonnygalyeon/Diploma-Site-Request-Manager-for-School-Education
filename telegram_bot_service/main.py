@@ -3,8 +3,50 @@ from pydantic import BaseModel
 import httpx
 from fastapi import Depends
 from sqlalchemy.orm import Session
-from .database import SessionLocal
-from .models import CourseRegistration
+from databases import Database
+from telegram import ReplyKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
+
+
+# from handlers import handle_application
+
+def main():
+    application = Application.builder().token('7726856222:AAEnn5XEVxWDuMR3MvLt2gsGT4wdgjdYD44').build()
+    setup_handlers(application)
+    application.run_polling()
+# Клавиатура с кнопками
+keyboard = [
+    ["📝 Запись заявок"],
+    ["📋 Просмотр заявок"],
+    ["📊 Список количества на все курсы"]
+]
+reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+async def start(update, context):
+    await update.message.reply_text(
+        "Выберите действие:",
+        reply_markup=reply_markup
+    )
+
+async def handle_message(update, context):
+    text = update.message.text
+    if text == "📝 Запись заявок":
+        await update.message.reply_text("Введите данные заявки в формате:\nКурс, Имя, Email, Телефон")
+    elif text == "📋 Просмотр заявок":
+        # Здесь логика получения заявок из БД
+        applications = await get_applications_from_db()
+        await update.message.reply_text(f"Ваши заявки:\n{applications}")
+    elif text == "📊 Список количества на все курсы":
+        stats = await get_course_stats()
+        await update.message.reply_text(f"Статистика по курсам:\n{stats}")
+
+def setup_handlers(application):
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+DATABASE_URL = "postgresql+asyncpg://emilmardanov:samsepi0l@localhost:5432/request_manager_db"
+
+database = Database(DATABASE_URL)
 
 app = FastAPI()
 
@@ -31,15 +73,19 @@ class CourseRegistration(BaseModel):
 
 @app.post("/register")
 async def register(course_data: CourseRegistration):
-    # 1. Сохраняем в базу данных (пример для SQLite)
-    import sqlite3
-    conn = sqlite3.connect('courses.db')
-    cursor = conn.cursor()
-    cursor.execute('''
+    query = """
         INSERT INTO registrations (user_id, course_name, email, phone)
-        VALUES (?, ?, ?, ?)
-    ''', (course_data.user_id, course_data.course_name, course_data.email, course_data.phone))
-    conn.commit()
+        VALUES (:user_id, :course_name, :email, :phone)
+        RETURNING id
+    """
+    values = {
+        "user_id": course_data.user_id,
+        "course_name": course_data.course_name,
+        "email": course_data.email,
+        "phone": course_data.phone
+    }
+    
+    record_id = await database.execute(query=query, values=values)
     
     # 2. Отправляем уведомление
     notification = Notification(
@@ -120,3 +166,28 @@ async def handle_notification(notification: Notification):
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+async def handle_application(update, context):
+    try:
+        parts = update.message.text.split(',')
+        if len(parts) != 4:
+            raise ValueError
+        
+        course, name, email, phone = [part.strip() for part in parts]
+        
+        async with AsyncSession(engine) as session:
+            new_app = Application(
+                course_name=course,
+                user_name=name,
+                email=email,
+                phone=phone,
+                user_id=update.message.chat_id
+            )
+            session.add(new_app)
+            await session.commit()
+            
+        await update.message.reply_text("✅ Заявка успешно сохранена!")
+        
+    except Exception as e:
+        await update.message.reply_text("❌ Ошибка формата. Введите:\nКурс, Имя, Email, Телефон")
+
