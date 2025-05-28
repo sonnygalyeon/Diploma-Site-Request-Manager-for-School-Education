@@ -11,7 +11,7 @@ services:
       - "5432:5432"
 
   redis:
-    image: redis:latest  # Используйте latest вместо 6
+    image: redis:latest  # Используется latest вместо 6
     ports:
       - "6379:6379"
 
