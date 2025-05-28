@@ -1,19 +1,37 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from pydantic import BaseModel
 import httpx
-from fastapi import Depends
 from sqlalchemy.orm import Session
 from databases import Database
 from telegram import ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
-
+from keyboards import get_main_keyboard
 
 # from handlers import handle_application
 
+# telegram_bot_service/main.py
+from handlers import setup_handlers
+from database import engine, Base
+from telegram.ext import Application
+
+async def init_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
 def main():
-    application = Application.builder().token('7726856222:AAEnn5XEVxWDuMR3MvLt2gsGT4wdgjdYD44').build()
+    application = Application.builder().token("TOKEN").build()
     setup_handlers(application)
+    
+    # Инициализация БД
+    import asyncio
+    asyncio.run(init_db())
+    
     application.run_polling()
+
+if __name__ == "__main__":
+    main()
+
+
 # Клавиатура с кнопками
 keyboard = [
     ["📝 Запись заявок"],
@@ -22,11 +40,13 @@ keyboard = [
 ]
 reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
+
 async def start(update, context):
     await update.message.reply_text(
         "Выберите действие:",
-        reply_markup=reply_markup
+        reply_markup=get_main_keyboard()
     )
+
 
 async def handle_message(update, context):
     text = update.message.text
@@ -40,9 +60,12 @@ async def handle_message(update, context):
         stats = await get_course_stats()
         await update.message.reply_text(f"Статистика по курсам:\n{stats}")
 
+
 def setup_handlers(application):
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND, handle_message))
+
 
 DATABASE_URL = "postgresql+asyncpg://emilmardanov:samsepi0l@localhost:5432/request_manager_db"
 
@@ -51,25 +74,32 @@ database = Database(DATABASE_URL)
 app = FastAPI()
 
 # Модель для уведомления
+
+
 class Notification(BaseModel):
     event_type: str
     user_id: str
     data: dict
 
 # Dependency
+
+
 def get_db():
     db = database.SessionLocal()
     try:
         yield db
     finally:
         db.close()
-        
+
 # Модель для регистрации
+
+
 class CourseRegistration(BaseModel):
     user_id: int  # Telegram chat_id
     course_name: str
     email: str
     phone: str
+
 
 @app.post("/register")
 async def register(course_data: CourseRegistration):
@@ -84,9 +114,9 @@ async def register(course_data: CourseRegistration):
         "email": course_data.email,
         "phone": course_data.phone
     }
-    
+
     record_id = await database.execute(query=query, values=values)
-    
+
     # 2. Отправляем уведомление
     notification = Notification(
         event_type="course_registration",
@@ -97,7 +127,7 @@ async def register(course_data: CourseRegistration):
         }
     )
     await handle_notification(notification)
-    
+
     return {"status": "success"}
 
 # Конфигурация (можно вынести в settings.py)
@@ -112,17 +142,21 @@ BOT_CONFIG = {
 }
 
 # Форматирование уведомления
+
+
 def format_notification(notification: Notification) -> str:
     template = BOT_CONFIG["templates"].get(notification.event_type)
     if not template:
         return f"⚠️ Неизвестное событие: {notification.event_type}\nДанные: {notification.data}"
-    
+
     try:
         return template.format(**notification.data)
     except KeyError as e:
         return f"⚠️ Ошибка форматирования: отсутствует ключ {e}"
 
 # Эндпоинт для приема уведомлений
+
+
 @app.post("/notify")
 async def handle_notification(notification: Notification):
     formatted_message = format_notification(notification)
@@ -163,18 +197,21 @@ async def handle_notification(notification: Notification):
     return {"status": "success"}
 
 # Health check
+
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
 
 async def handle_application(update, context):
     try:
         parts = update.message.text.split(',')
         if len(parts) != 4:
             raise ValueError
-        
+
         course, name, email, phone = [part.strip() for part in parts]
-        
+
         async with AsyncSession(engine) as session:
             new_app = Application(
                 course_name=course,
@@ -185,9 +222,12 @@ async def handle_application(update, context):
             )
             session.add(new_app)
             await session.commit()
-            
+
         await update.message.reply_text("✅ Заявка успешно сохранена!")
-        
+
     except Exception as e:
         await update.message.reply_text("❌ Ошибка формата. Введите:\nКурс, Имя, Email, Телефон")
+        
+if __name__ == "__main__":
+    main()
 

@@ -4,6 +4,7 @@ import requests
 from django.conf import settings
 from models import Application
 
+
 @shared_task
 def send_telegram_notification(app_id):
     app = Application.objects.get(id=app_id)

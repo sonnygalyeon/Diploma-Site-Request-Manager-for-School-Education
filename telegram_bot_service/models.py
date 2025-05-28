@@ -1,11 +1,13 @@
-from sqlalchemy import Column, Integer, String
-from .database import Base
+# telegram_bot_service/models.py
+from sqlalchemy import Column, Integer, String, ForeignKey
+from database import Base  # Теперь это будет работать
 
-class CourseRegistration(Base):
-    __tablename__ = "registrations"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer)  # Telegram chat_id
-    course_name = Column(String)
-    email = Column(String)
-    phone = Column(String)
+class Course(Base):
+    __tablename__ = 'courses'
+    id = Column(Integer, primary_key=True)
+    title = Column(String(100), nullable=False)
+
+class Application(Base):
+    __tablename__ = 'applications'
+    id = Column(Integer, primary_key=True)
+    course_id = Column(Integer, ForeignKey('courses.id'))

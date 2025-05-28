@@ -1,7 +1,31 @@
 from sqlalchemy import create_engine, MetaData
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 from databases import Database
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import create_engine
+
+SQLALCHEMY_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost/db"
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
+# Асинхронный движок (добавьте рядом с обычным движком)
+async_engine = create_async_engine(
+    "postgresql+asyncpg://emilmardanov:samsepi0l@localhost/request_manager_db",
+    echo=True  # Для отладки SQL-запросов
+)
+
+# Асинхронная сессия
+AsyncSessionLocal = sessionmaker(
+    bind=async_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autoflush=False
+)
 
 async def handle_application(update, context):
     try:

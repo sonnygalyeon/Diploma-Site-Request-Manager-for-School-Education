@@ -1,13 +1,14 @@
-from django.db import models
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy.ext.declarative import declarative_base
 
-class Course(models.Model):
-    title = models.CharField(max_length=200)
-    description = models.TextField()
-    start_date = models.DateField()
-    is_active = models.BooleanField(default=True)
-    teachers = models.ManyToManyField('auth.User', related_name='courses')
+Base = declarative_base()
 
-    def __str__(self):
-        return self.title
-    
+class Course(Base):
+    __tablename__ = 'courses'
+    id = Column(Integer, primary_key=True)
+    title = Column(String(100), nullable=False)
+
+class Application(Base):
+    __tablename__ = 'applications'
+    id = Column(Integer, primary_key=True)
+    course_id = Column(Integer, ForeignKey('courses.id'))
