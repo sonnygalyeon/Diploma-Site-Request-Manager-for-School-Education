@@ -1,233 +1,117 @@
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 import httpx
-from sqlalchemy.orm import Session
-from databases import Database
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import select, func, Integer, String, DateTime, Column
 from telegram import ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
-from keyboards import get_main_keyboard
+from telegram.ext import Application as TelegramApp, CommandHandler, MessageHandler, filters
+from typing import List, Tuple
 
-# from handlers import handle_application
+# Инициализация FastAPI
+app = FastAPI()
 
-# telegram_bot_service/main.py
-from handlers import setup_handlers
-from database import engine, Base
-from telegram.ext import Application
+# Инициализация Telegram бота
+telegram_app = TelegramApp.builder().token("YOUR_BOT_TOKEN").build()
 
-async def init_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+# Настройка базы данных
+DATABASE_URL = "postgresql+asyncpg://emilmardanov:samsepi0l@localhost:5432/request_manager_db"
+engine = create_async_engine(DATABASE_URL)
+AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-def main():
-    application = Application.builder().token("TOKEN").build()
-    setup_handlers(application)
-    
-    # Инициализация БД
-    import asyncio
-    asyncio.run(init_db())
-    
-    application.run_polling()
+# Базовая декларация моделей SQLAlchemy
+Base = declarative_base()
 
-if __name__ == "__main__":
-    main()
+# Модель Application
+class Application(Base):
+    __tablename__ = 'applications'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    course_name = Column(String)
+    user_name = Column(String)
+    email = Column(String)
+    phone = Column(String)
+    created_at = Column(DateTime, server_default=func.now())
 
+# Клавиатура
+def get_main_keyboard():
+    keyboard = [
+        ["📝 Запись заявок"],
+        ["📋 Просмотр заявок"],
+        ["📊 Список количества на все курсы"]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# Клавиатура с кнопками
-keyboard = [
-    ["📝 Запись заявок"],
-    ["📋 Просмотр заявок"],
-    ["📊 Список количества на все курсы"]
-]
-reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-
+# Обработчики Telegram
 async def start(update, context):
     await update.message.reply_text(
         "Выберите действие:",
         reply_markup=get_main_keyboard()
     )
 
-
 async def handle_message(update, context):
     text = update.message.text
     if text == "📝 Запись заявок":
         await update.message.reply_text("Введите данные заявки в формате:\nКурс, Имя, Email, Телефон")
     elif text == "📋 Просмотр заявок":
-        # Здесь логика получения заявок из БД
-        applications = await get_applications_from_db()
-        await update.message.reply_text(f"Ваши заявки:\n{applications}")
+        applications = await get_applications_from_db(update.message.chat_id)
+        response = "Ваши заявки:\n" + "\n".join(applications) if applications else "У вас нет заявок"
+        await update.message.reply_text(response)
     elif text == "📊 Список количества на все курсы":
         stats = await get_course_stats()
-        await update.message.reply_text(f"Статистика по курсам:\n{stats}")
-
+        response = "Статистика по курсам:\n" + "\n".join([f"{course}: {count}" for course, count in stats])
+        await update.message.reply_text(response)
 
 def setup_handlers(application):
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-
-DATABASE_URL = "postgresql+asyncpg://emilmardanov:samsepi0l@localhost:5432/request_manager_db"
-
-database = Database(DATABASE_URL)
-
-app = FastAPI()
-
-# Модель для уведомления
-
-
+# FastAPI endpoint
 class Notification(BaseModel):
     event_type: str
     user_id: str
     data: dict
-
-# Dependency
-
-
-def get_db():
-    db = database.SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-# Модель для регистрации
-
-
-class CourseRegistration(BaseModel):
-    user_id: int  # Telegram chat_id
-    course_name: str
-    email: str
-    phone: str
-
-
-@app.post("/register")
-async def register(course_data: CourseRegistration):
-    query = """
-        INSERT INTO registrations (user_id, course_name, email, phone)
-        VALUES (:user_id, :course_name, :email, :phone)
-        RETURNING id
-    """
-    values = {
-        "user_id": course_data.user_id,
-        "course_name": course_data.course_name,
-        "email": course_data.email,
-        "phone": course_data.phone
-    }
-
-    record_id = await database.execute(query=query, values=values)
-
-    # 2. Отправляем уведомление
-    notification = Notification(
-        event_type="course_registration",
-        user_id=str(course_data.user_id),
-        data={
-            "course": course_data.course_name,
-            "email": course_data.email
-        }
-    )
-    await handle_notification(notification)
-
-    return {"status": "success"}
-
-# Конфигурация (можно вынести в settings.py)
-BOT_CONFIG = {
-    "webhook_url": "https://api.telegram.org/bot7726856222:AAEnn5XEVxWDuMR3MvLt2gsGT4wdgjdYD44/sendMessage",
-    "templates": {
-        "order_created": "🛒 Новый заказ #{order_id} от {user_name} на сумму {amount} ₽",
-        "payment_received": "✅ Платеж получен: {amount} ₽ от {user_name}",
-        "support_request": "🆘 Поддержка: {user_name} пишет: '{message}'"
-    },
-    "default_chat_id": 381381540
-}
-
-# Форматирование уведомления
-
-
-def format_notification(notification: Notification) -> str:
-    template = BOT_CONFIG["templates"].get(notification.event_type)
-    if not template:
-        return f"⚠️ Неизвестное событие: {notification.event_type}\nДанные: {notification.data}"
-
-    try:
-        return template.format(**notification.data)
-    except KeyError as e:
-        return f"⚠️ Ошибка форматирования: отсутствует ключ {e}"
-
-# Эндпоинт для приема уведомлений
-
 
 @app.post("/notify")
 async def handle_notification(notification: Notification):
     formatted_message = format_notification(notification)
     async with httpx.AsyncClient() as client:
         await client.post(
-            BOT_CONFIG["webhook_url"],
+            "https://api.telegram.org/botYOUR_BOT_TOKEN/sendMessage",
             json={
-                "chat_id": notification.user_id or BOT_CONFIG["default_chat_id"],
+                "chat_id": notification.user_id,
                 "text": formatted_message,
-                "parse_mode": "MarkdownV2"  # Для форматирования
+                "parse_mode": "MarkdownV2"
             }
         )
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                BOT_CONFIG["webhook_url"],
-                json={
-                    "chat_id": notification.user_id,  # Для Telegram
-                    "text": formatted_message,
-                    "parse_mode": "HTML"
-                },
-                timeout=10.0
-            )
-            print("Ответ сервера:", {
-                "status": response.status_code,
-                "body": response.text
-            })
-            response.raise_for_status()
-    except Exception as e:
-        print("!!! Ошибка отправки !!!:", str(e))
-        raise
-    print("\n=== Отправка уведомления ===")
-    print("URL:", BOT_CONFIG["webhook_url"])
-    print("Тело запроса:", {
-        "chat_id": notification.user_id,
-        "text": formatted_message
-    })
     return {"status": "success"}
 
-# Health check
+# Функции асинхронного взаимодействия с базой данных
+async def get_applications_from_db(user_id):
+    async_session = AsyncSessionLocal()
+    stmt = select(Application.course_name, Application.user_name, Application.email, Application.phone)\
+           .where(Application.user_id == user_id)
+    result = await async_session.execute(stmt)
+    rows = result.fetchall()
+    return [f"Курс: {row.course_name}, Пользователь: {row.user_name}, Email: {row.email}, Тел.: {row.phone}" for row in rows]
 
+async def get_course_stats():
+    async_session = AsyncSessionLocal()
+    stmt = select(Application.course_name, func.count())\
+           .group_by(Application.course_name)
+    result = await async_session.execute(stmt)
+    return [(row.course_name, row.count_) for row in result.fetchall()]
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
+# Запуск приложения
+async def init_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
+def run_bot():
+    setup_handlers(telegram_app)
+    telegram_app.run_polling()
 
-async def handle_application(update, context):
-    try:
-        parts = update.message.text.split(',')
-        if len(parts) != 4:
-            raise ValueError
-
-        course, name, email, phone = [part.strip() for part in parts]
-
-        async with AsyncSession(engine) as session:
-            new_app = Application(
-                course_name=course,
-                user_name=name,
-                email=email,
-                phone=phone,
-                user_id=update.message.chat_id
-            )
-            session.add(new_app)
-            await session.commit()
-
-        await update.message.reply_text("✅ Заявка успешно сохранена!")
-
-    except Exception as e:
-        await update.message.reply_text("❌ Ошибка формата. Введите:\nКурс, Имя, Email, Телефон")
-        
 if __name__ == "__main__":
-    main()
-
+    import asyncio
+    asyncio.run(init_db())
+    run_bot()

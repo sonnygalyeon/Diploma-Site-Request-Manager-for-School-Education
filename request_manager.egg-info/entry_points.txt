@@ -1,0 +1,2 @@
+[console_scripts]
+run-bot = request_manager.telegram_bot_service.main:main

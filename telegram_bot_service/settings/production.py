@@ -1,14 +1,14 @@
 from .base import *
 
 DEBUG = False
-ALLOWED_HOSTS = ['yourdomain.com', 'server_ip']
+ALLOWED_HOSTS = ['yourdomain.com', '127.0.0.1']
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'request_db',
-        'USER': 'request_user',
-        'PASSWORD': 'your_strong_password',
+        'NAME': 'request_manager_db',
+        'USER': 'emilmardanov',
+        'PASSWORD': 'samsepi0l',
         'HOST': 'localhost',
         'PORT': '5432',
     }

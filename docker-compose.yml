@@ -23,7 +23,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgres://myuser:mypassword@db:5432/mydb
+      - DATABASE_URL=postgres:/emilmardanov:samsepi0l@db:5432/request_manager_db
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       - db

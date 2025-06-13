@@ -21,6 +21,7 @@ courses/models.py
 courses/tests.py
 courses/views.py
 courses/migrations/0001_initial.py
+courses/migrations/0002_delete_course.py
 courses/migrations/__init__.py
 request_manager/__init__.py
 request_manager/asgi.py

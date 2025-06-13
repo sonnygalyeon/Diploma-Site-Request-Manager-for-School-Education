@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: request_manager
+Version: 0.1
+Requires-Dist: python-telegram-bot
+Requires-Dist: sqlalchemy
+Requires-Dist: asyncpg
+Dynamic: requires-dist

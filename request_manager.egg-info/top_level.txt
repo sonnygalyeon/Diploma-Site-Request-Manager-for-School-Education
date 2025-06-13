@@ -1,0 +1,4 @@
+applications
+courses
+request_manager
+telegram_bot_service
